@@ -15,3 +15,5 @@ url = { version = "2.1.1", features = ["serde"] }
 log = "0.4"
 pretty_env_logger = "0.3"
 bytes = "0.5"
+imgflip = "0.1.0"
+futures-util = "0.3.4"

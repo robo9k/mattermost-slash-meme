@@ -30,12 +30,19 @@ enum Error {
     InvalidToken,
     InvalidAuthorizationHeader,
     InvalidAuthorizationHeaderValue,
+	ImgFlip,
 }
 impl warp::reject::Reject for Error {}
 
 impl From<std::string::FromUtf8Error> for Error {
     fn from(_e: std::string::FromUtf8Error) -> Self {
         Error::InvalidAuthorizationHeader
+    }
+}
+
+impl From<imgflip::Error> for Error {
+    fn from(_e: imgflip::Error) -> Self {
+        Error::ImgFlip
     }
 }
 
@@ -81,17 +88,35 @@ where
         .boxed()
 }
 
+
+async fn meme_reply(imgflip: std::sync::Arc<imgflip::AccountClient>, request: Request) -> Result<impl warp::Reply, warp::Rejection> {
+	use futures_util::future::TryFutureExt;
+	
+		info!("request: {:?}", request);
+		
+		let meme_caption = imgflip::CaptionBoxesRequestBuilder::new("61580")
+			.caption_box(imgflip::CaptionBoxBuilder::new(request.text).build())
+			.build();
+			
+		let meme = imgflip.caption_image(meme_caption).map_err(|e|warp::reject::custom::<Error>(e.into())).await?;
+		
+        let response = Response {
+            text: Some(format!(" hej @{}: {}", request.user_name, meme.url())),
+        };
+        Ok(warp::reply::json(&response))
+}
+
+fn with_imgflip(imgflip: std::sync::Arc<imgflip::AccountClient>) -> impl Filter<Extract = (std::sync::Arc<imgflip::AccountClient>,), Error = std::convert::Infallible> + Clone {
+	warp::any().map(move || imgflip.clone())
+}
+
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
 
-    let hook = webhook("3zd39ftkcfnnfrqgb5rie8qtjw".to_string()).map(|request: Request| {
-        info!("request: {:?}", request);
-        let response = Response {
-            text: Some(format!(" hej @{}", request.user_name)),
-        };
-        warp::reply::json(&response)
-    });
+	let imgflip = std::sync::Arc::new(imgflip::AccountClient::new("freeforall6", "nsfw1234"));
+
+    let hook = with_imgflip(imgflip).and(webhook("3zd39ftkcfnnfrqgb5rie8qtjw".to_string())).and_then(meme_reply);
 
     warp::serve(hook).run(([127, 0, 0, 1], 3030)).await;
 }

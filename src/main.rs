@@ -23,7 +23,11 @@ struct Request {
 #[derive(Serialize, Debug)]
 struct Response {
     text: Option<String>,
-    response_type: String,
+    response_type: Option<String>,
+    username: Option<String>,
+    channel_id: Option<String>,
+    icon_url: Option<Url>,
+    goto_location: Option<Url>,
 }
 
 #[derive(Debug)]
@@ -97,7 +101,11 @@ async fn meme_reply(
 
     let response = Response {
         text: Some("working on it".to_string()),
-        response_type: "".to_string(),
+        response_type: None,
+        username: None,
+        channel_id: None,
+        icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
+        goto_location: None,
     };
     info!("response {:?}", response);
 
@@ -121,7 +129,11 @@ async fn reply_with_meme(
 
     let response = Response {
         text: Some(format!(" hej {}", meme.url())),
-        response_type: "in_channel".to_string(),
+        response_type: Some("in_channel".to_string()),
+        username: None,
+        channel_id: None,
+        icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
+        goto_location: Some(meme.page_url().clone()),
     };
     info!("response {:?}", response);
 

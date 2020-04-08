@@ -23,6 +23,7 @@ struct Request {
 #[derive(Serialize, Debug)]
 struct Response {
     text: Option<String>,
+    response_type: String,
 }
 
 #[derive(Debug)]
@@ -30,7 +31,7 @@ enum Error {
     InvalidToken,
     InvalidAuthorizationHeader,
     InvalidAuthorizationHeaderValue,
-	ImgFlip,
+    ImgFlip,
 }
 impl warp::reject::Reject for Error {}
 
@@ -88,35 +89,69 @@ where
         .boxed()
 }
 
+async fn meme_reply(
+    imgflip: std::sync::Arc<imgflip::AccountClient>,
+    request: Request,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    info!("request: {:?}", request);
 
-async fn meme_reply(imgflip: std::sync::Arc<imgflip::AccountClient>, request: Request) -> Result<impl warp::Reply, warp::Rejection> {
-	use futures_util::future::TryFutureExt;
-	
-		info!("request: {:?}", request);
-		
-		let meme_caption = imgflip::CaptionBoxesRequestBuilder::new("61580")
-			.caption_box(imgflip::CaptionBoxBuilder::new(request.text).build())
-			.build();
-			
-		let meme = imgflip.caption_image(meme_caption).map_err(|e|warp::reject::custom::<Error>(e.into())).await?;
-		
-        let response = Response {
-            text: Some(format!(" hej @{}: {}", request.user_name, meme.url())),
-        };
-        Ok(warp::reply::json(&response))
+    let response = Response {
+        text: Some("working on it".to_string()),
+        response_type: "".to_string(),
+    };
+    info!("response {:?}", response);
+
+    tokio::task::spawn_blocking(|| {
+        reply_with_meme(imgflip, request.text, request.response_url)
+    });
+
+    Ok(warp::reply::json(&response))
 }
 
-fn with_imgflip(imgflip: std::sync::Arc<imgflip::AccountClient>) -> impl Filter<Extract = (std::sync::Arc<imgflip::AccountClient>,), Error = std::convert::Infallible> + Clone {
-	warp::any().map(move || imgflip.clone())
+async fn reply_with_meme(
+    imgflip: std::sync::Arc<imgflip::AccountClient>,
+    text: String,
+    response_url: Url,
+) {
+    let meme_caption = imgflip::CaptionBoxesRequestBuilder::new("61580")
+        .caption_box(imgflip::CaptionBoxBuilder::new(text).build())
+        .build();
+    info!("caption {:?}", meme_caption);
+
+    let meme = imgflip.caption_image(meme_caption).await.unwrap();
+    info!("meme {:?}", meme);
+
+    let response = Response {
+        text: Some(format!(" hej {}", meme.url())),
+        response_type: "in_channel".to_string(),
+    };
+    info!("response {:?}", response);
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(response_url)
+        .json(&response)
+        .send()
+        .await
+        .unwrap();
 }
 
-#[tokio::main]
+fn with_imgflip(
+    imgflip: std::sync::Arc<imgflip::AccountClient>,
+) -> impl Filter<Extract = (std::sync::Arc<imgflip::AccountClient>,), Error = std::convert::Infallible>
+       + Clone {
+    warp::any().map(move || imgflip.clone())
+}
+
+#[tokio::main(core_threads = 2,max_threads = 2)]
 async fn main() {
     pretty_env_logger::init();
 
-	let imgflip = std::sync::Arc::new(imgflip::AccountClient::new("freeforall6", "nsfw1234"));
+    let imgflip = std::sync::Arc::new(imgflip::AccountClient::new("freeforall6", "nsfw1234"));
 
-    let hook = with_imgflip(imgflip).and(webhook("3zd39ftkcfnnfrqgb5rie8qtjw".to_string())).and_then(meme_reply);
+    let hook = with_imgflip(imgflip)
+        .and(webhook("3zd39ftkcfnnfrqgb5rie8qtjw".to_string()))
+        .and_then(meme_reply);
 
     warp::serve(hook).run(([127, 0, 0, 1], 3030)).await;
 }

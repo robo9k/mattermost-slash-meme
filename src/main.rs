@@ -101,9 +101,7 @@ async fn meme_reply(
     };
     info!("response {:?}", response);
 
-    tokio::task::spawn_blocking(|| {
-        reply_with_meme(imgflip, request.text, request.response_url)
-    });
+    tokio::spawn(reply_with_meme(imgflip, request.text, request.response_url));
 
     Ok(warp::reply::json(&response))
 }
@@ -143,7 +141,7 @@ fn with_imgflip(
     warp::any().map(move || imgflip.clone())
 }
 
-#[tokio::main(core_threads = 2,max_threads = 2)]
+#[tokio::main]
 async fn main() {
     pretty_env_logger::init();
 

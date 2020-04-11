@@ -167,24 +167,45 @@ async fn reply_with_meme(
     let meme_caption = meme_caption.build();
     info!("caption {:?}", meme_caption);
 
-    let meme = imgflip.caption_image(meme_caption).await.unwrap();
-    info!("meme {:?}", meme);
-
-    let response = Response {
-        text: Some(format!(" hej {}", meme.url())),
-        response_type: Some("in_channel".to_string()),
-        username: None,
-        channel_id: None,
-        icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
-        goto_location: Some(meme.page_url().clone()),
-        skip_slack_parsing: Some(true),
+    let meme_response = imgflip.caption_image(meme_caption).await;
+    info!("meme_response {:?}", meme_response);
+    let user_response = match meme_response {
+        Ok(meme) => Response {
+            text: Some(format!(" hej {}", meme.url())),
+            response_type: Some("in_channel".to_string()),
+            username: None,
+            channel_id: None,
+            icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
+            goto_location: Some(meme.page_url().clone()),
+            skip_slack_parsing: Some(true),
+        },
+        Err(error) => match error {
+            imgflip::Error::ApiError(error_message) => Response {
+                text: Some(format!("Uhoh, something went wrong: {}", error_message)),
+                response_type: None,
+                username: None,
+                channel_id: None,
+                icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
+                goto_location: None,
+                skip_slack_parsing: Some(true),
+            },
+            _ => Response {
+                text: Some("Uhoh, something went wrong".to_string()),
+                response_type: None,
+                username: None,
+                channel_id: None,
+                icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
+                goto_location: None,
+                skip_slack_parsing: Some(true),
+            },
+        },
     };
-    info!("response {:?}", response);
+    info!("user_response {:?}", user_response);
 
     let client = reqwest::Client::new();
     let res = client
         .post(response_url)
-        .json(&response)
+        .json(&user_response)
         .send()
         .await
         .unwrap();

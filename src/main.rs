@@ -72,10 +72,11 @@ pub fn token_authorization() -> impl Filter<Extract = (String,), Error = warp::R
         .boxed()
 }
 
-pub fn webhook<T>(
-    token: String,
+pub fn webhook<F, T>(
+    token_validator: F,
 ) -> impl Clone + std::fmt::Debug + Filter<Extract = (T,), Error = warp::Rejection>
 where
+    F: 'static + Fn(&str) -> bool + Clone + Send + Sync,
     T: 'static + DeserializeOwned + Send,
 {
     warp::post()
@@ -83,7 +84,7 @@ where
         .and(warp::body::form())
         .map(move |authorization: String, request: T| {
             println!("auth token {}", authorization);
-            if authorization == token {
+            if token_validator(&authorization) {
                 Ok(request)
             } else {
                 Err(Error::InvalidToken)
@@ -160,7 +161,7 @@ async fn main() {
     let imgflip = std::sync::Arc::new(imgflip::AccountClient::new("freeforall6", "nsfw1234"));
 
     let hook = with_imgflip(imgflip)
-        .and(webhook("3zd39ftkcfnnfrqgb5rie8qtjw".to_string()))
+        .and(webhook(|token| "3zd39ftkcfnnfrqgb5rie8qtjw" == token))
         .and_then(meme_reply);
 
     warp::serve(hook).run(([127, 0, 0, 1], 3030)).await;

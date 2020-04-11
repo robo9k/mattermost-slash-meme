@@ -28,6 +28,7 @@ struct Response {
     channel_id: Option<String>,
     icon_url: Option<Url>,
     goto_location: Option<Url>,
+    skip_slack_parsing: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -94,11 +95,49 @@ where
         .boxed()
 }
 
+struct MemeRequest {
+    meme: String,
+    boxes: Vec<String>,
+}
+
+fn usage(slash_command: String) -> Response {
+    let usage_response = Response {
+		text: Some(format!("Usage: `{slash_command} <id>⇧⏎<text>⇧⏎…`\nExample:\n```{slash_command} 181913649\nmaking memes yourself\nusing a bot to make memes```", slash_command=slash_command)),
+		response_type: None,
+		username: None,
+		channel_id: None,
+		icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
+        goto_location: None,
+		skip_slack_parsing: Some(true),
+	};
+    info!(
+        "usage response {:?}",
+        serde_json::to_string(&usage_response)
+    );
+    usage_response
+}
+
 async fn meme_reply(
     imgflip: std::sync::Arc<imgflip::AccountClient>,
     request: Request,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     info!("request: {:?}", request);
+
+    let mut text_lines = request.text.lines();
+    let meme = match text_lines.next() {
+        Some(meme) => meme.to_string(),
+        None => {
+            let usage_response = usage(request.command);
+            return Ok(warp::reply::json(&usage_response));
+        }
+    };
+    let boxes: Vec<_> = text_lines.map(|s| s.to_string()).collect();
+    if boxes.is_empty() {
+        let usage_response = usage(request.command);
+        return Ok(warp::reply::json(&usage_response));
+    }
+
+    let meme_request = MemeRequest { meme, boxes };
 
     let response = Response {
         text: Some("working on it".to_string()),
@@ -107,22 +146,25 @@ async fn meme_reply(
         channel_id: None,
         icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
         goto_location: None,
+        skip_slack_parsing: Some(true),
     };
     info!("response {:?}", response);
 
-    tokio::spawn(reply_with_meme(imgflip, request.text, request.response_url));
+    tokio::spawn(reply_with_meme(imgflip, meme_request, request.response_url));
 
     Ok(warp::reply::json(&response))
 }
 
 async fn reply_with_meme(
     imgflip: std::sync::Arc<imgflip::AccountClient>,
-    text: String,
+    meme_request: MemeRequest,
     response_url: Url,
 ) {
-    let meme_caption = imgflip::CaptionBoxesRequestBuilder::new("61580")
-        .caption_box(imgflip::CaptionBoxBuilder::new(text).build())
-        .build();
+    let mut meme_caption = imgflip::CaptionBoxesRequestBuilder::new(meme_request.meme);
+    for b in meme_request.boxes.iter() {
+        meme_caption = meme_caption.caption_box(imgflip::CaptionBoxBuilder::new(b).build());
+    }
+    let meme_caption = meme_caption.build();
     info!("caption {:?}", meme_caption);
 
     let meme = imgflip.caption_image(meme_caption).await.unwrap();
@@ -135,6 +177,7 @@ async fn reply_with_meme(
         channel_id: None,
         icon_url: Some(Url::parse("https://imgflip.com/imgflip_white_96.png").unwrap()),
         goto_location: Some(meme.page_url().clone()),
+        skip_slack_parsing: Some(true),
     };
     info!("response {:?}", response);
 

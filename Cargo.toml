@@ -18,3 +18,5 @@ bytes = "0.5"
 imgflip = "0.1.0"
 futures-util = "0.3.4"
 reqwest = { version = "0.10.4", features = ["json"] }
+clap = { git = "https://github.com/clap-rs/clap/" }
+clap-socketaddr = { git = "https://github.com/robo9k/clap-socketaddr" }

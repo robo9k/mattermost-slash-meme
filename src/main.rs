@@ -1,5 +1,6 @@
 use warp::Filter;
 
+use clap::Clap;
 use log::info;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -218,15 +219,46 @@ fn with_imgflip(
     warp::any().map(move || imgflip.clone())
 }
 
+/// Mattermost slash command for api.imgflip.com
+///
+/// HTTP server for a custom Mattermost slash command that creates memes via api.imgflip.com
+#[derive(Clap, Debug)]
+struct Cli {
+    #[clap(flatten)]
+    socket_addr: clap_socketaddr::SocketAddrArgs,
+
+    /// Username of the imgflip.com account
+    #[clap(short = "U", long, env)]
+    imgflip_username: String,
+    /// Password of the imgflip.com account
+    #[clap(short = "P", long, env, hide_env_values = true)]
+    imgflip_password: String,
+
+    /// Token(s) of the allowed slash command requests
+    #[clap(required = true, short = "T", long, env, hide_env_values = true)]
+    slash_command_token: Vec<String>,
+}
+
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
 
-    let imgflip = std::sync::Arc::new(imgflip::AccountClient::new("freeforall6", "nsfw1234"));
+    let args = Cli::parse();
+
+    let imgflip = std::sync::Arc::new(imgflip::AccountClient::new(
+        args.imgflip_username,
+        args.imgflip_password,
+    ));
+    let tokens = args.slash_command_token;
+    let socket_addr: std::net::SocketAddr = args.socket_addr.into();
 
     let hook = with_imgflip(imgflip)
-        .and(webhook(|token| "3zd39ftkcfnnfrqgb5rie8qtjw" == token))
+        .and(webhook(move |request_token| {
+            tokens
+                .iter()
+                .any(|configured_token| configured_token == request_token)
+        }))
         .and_then(meme_reply);
 
-    warp::serve(hook).run(([127, 0, 0, 1], 3030)).await;
+    warp::serve(hook).run(socket_addr).await;
 }

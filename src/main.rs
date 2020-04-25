@@ -32,11 +32,15 @@ struct Response {
     skip_slack_parsing: Option<bool>,
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 enum Error {
+    #[error("invalid token")]
     InvalidToken,
+    #[error("invalid `Authorization` header")]
     InvalidAuthorizationHeader,
+    #[error("invalid `Authorization` header value")]
     InvalidAuthorizationHeaderValue,
+    #[error("imgflip error")]
     ImgFlip,
 }
 impl warp::reject::Reject for Error {}
@@ -70,7 +74,7 @@ pub fn token_authorization() -> impl Filter<Extract = (String,), Error = warp::R
                 Err(Error::InvalidAuthorizationHeaderValue)
             }
         })
-        .and_then(|result: Result<_, _>| async { result.map_err(warp::reject::custom) })
+        .and_then(|result: Result<_, _>| async { result.map_err(problem::build) })
         .boxed()
 }
 
@@ -92,7 +96,7 @@ where
                 Err(Error::InvalidToken)
             }
         })
-        .and_then(|result: Result<_, _>| async { result.map_err(warp::reject::custom) })
+        .and_then(|result: Result<_, _>| async { result.map_err(problem::build) })
         .boxed()
 }
 
@@ -239,8 +243,63 @@ struct Cli {
     slash_command_token: Vec<String>,
 }
 
+mod problem {
+    use http_api_problem::HttpApiProblem as Problem;
+    use http_api_problem::PROBLEM_JSON_MEDIA_TYPE;
+    use warp::http;
+    use warp::http::status::StatusCode;
+    use warp::Rejection;
+    use warp::Reply;
+
+    pub fn build<E: Into<anyhow::Error>>(err: E) -> Rejection {
+        warp::reject::custom(pack(err.into()))
+    }
+
+    pub fn pack(err: anyhow::Error) -> Problem {
+        let err = match err.downcast::<Problem>() {
+            Ok(problem) => return problem,
+
+            Err(err) => err,
+        };
+
+        if let Some(err) = err.downcast_ref::<crate::Error>() {
+            match err {
+                crate::Error::InvalidToken => {
+                    return Problem::new("Invalid token.")
+                        .set_status(StatusCode::UNAUTHORIZED)
+                        .set_detail("The passed token was invalid.")
+                }
+                _ => (),
+            }
+        }
+
+        //tracing::error!("internal error occurred: {:#}", err);
+        Problem::with_title_and_type_from_status(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+
+    pub async fn unpack(rejection: Rejection) -> Result<impl Reply, Rejection> {
+        if let Some(problem) = rejection.find::<Problem>() {
+            let code = problem
+                .status
+                .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
+
+            let reply = warp::reply::json(problem);
+            let reply = warp::reply::with_status(reply, code);
+            let reply = warp::reply::with_header(
+                reply,
+                http::header::CONTENT_TYPE,
+                PROBLEM_JSON_MEDIA_TYPE,
+            );
+
+            Ok(reply)
+        } else {
+            Err(rejection)
+        }
+    }
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     pretty_env_logger::init();
 
     let args = Cli::parse();
@@ -260,5 +319,9 @@ async fn main() {
         }))
         .and_then(meme_reply);
 
-    warp::serve(hook).run(socket_addr).await;
+    warp::serve(hook.recover(problem::unpack))
+        .run(socket_addr)
+        .await;
+
+    Ok(())
 }

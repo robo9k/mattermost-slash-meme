@@ -273,7 +273,7 @@ mod problem {
             }
         }
 
-        //tracing::error!("internal error occurred: {:#}", err);
+        tracing::error!("internal error occurred: {:#}", err);
         Problem::with_title_and_type_from_status(StatusCode::INTERNAL_SERVER_ERROR)
     }
 
@@ -300,7 +300,7 @@ mod problem {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    pretty_env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let args = Cli::parse();
 

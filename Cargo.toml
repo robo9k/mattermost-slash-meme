@@ -23,3 +23,5 @@ clap-socketaddr = { git = "https://github.com/robo9k/clap-socketaddr" }
 anyhow = "1.0.28"
 http-api-problem = { version = "0.17.0", features = ["with-warp"] }
 thiserror = "1.0.15"
+tracing = "0.1.13"
+tracing-subscriber = "0.2.5"

@@ -298,6 +298,19 @@ mod problem {
     }
 }
 
+async fn convert_warp_builtin_rejection(
+    rejection: warp::Rejection,
+) -> Result<std::convert::Infallible, warp::Rejection> {
+    if let Some(_err) = rejection.find::<warp::reject::MethodNotAllowed>() {
+        return Err(warp::reject::custom(
+            http_api_problem::HttpApiProblem::new("HTTP method not allowed.")
+                .set_status(warp::http::StatusCode::METHOD_NOT_ALLOWED),
+        ));
+    } else {
+        Err(rejection)
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -319,9 +332,12 @@ async fn main() -> anyhow::Result<()> {
         }))
         .and_then(meme_reply);
 
-    warp::serve(hook.recover(problem::unpack))
-        .run(socket_addr)
-        .await;
+    warp::serve(
+        hook.recover(convert_warp_builtin_rejection)
+            .recover(problem::unpack),
+    )
+    .run(socket_addr)
+    .await;
 
     Ok(())
 }
